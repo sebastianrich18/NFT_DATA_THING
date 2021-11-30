@@ -8,17 +8,34 @@ const decoder = new InputDataDecoder("openseaABI.json");
 const sql = require("sqlite3").verbose()
 let db = new sql.Database("nfts.db")
 let web3 = new Web3(ENDPOINT)
-let startBlock = 13660899
-let totalBlocksParsed = 33615
+let knownBlockRange;
+let totalBlocksParsed;
 
-getBlocks(startBlock)
+const CHUNK_SIZE = 5
+const ON_START = getNewBlocks
 
-async function getBlocks(start) {
-  await getEvents(start - 5, start)
-  totalBlocksParsed += 5
-  console.log("got blocks " + (start - 5) + "-" + start)
-  console.log("Parsed " + totalBlocksParsed + " blocks so far")
-  getBlocks(start - 5)
+start()
+
+function start() {
+  db.all(`select MIN(blockNum), MAX(blockNum) from sales;`, [], (err, row) => {
+    let min = row[0]['MIN(blockNum)']
+    let max = row[0]['MAX(blockNum)']
+    totalBlocksParsed = max - min
+    knownBlockRange = [min, max]
+    console.log("KNOWN BLOCK RANGE: " + knownBlockRange)
+    ON_START()
+  })
+
+}
+
+async function getNewBlocks() {
+  console.log("\nGetting blocks", knownBlockRange[1], "-", knownBlockRange[1] + CHUNK_SIZE)
+  await getEvents(knownBlockRange[1], knownBlockRange[1] + CHUNK_SIZE)
+}
+
+async function getOldBlocks() {
+  console.log("\nGetting blocks", knownBlockRange[0] - CHUNK_SIZE, "-", knownBlockRange[0])
+  await getEvents(knownBlockRange[0] - 5, knownBlockRange[0] + CHUNK_SIZE)
 
 }
 
@@ -30,7 +47,7 @@ async function getEvents(fromBlock, toBlock) {
   console.log("parsing " + txns.length + " OpenSea txns")
   let count = 1
   for (tx of txns) {
-    await web3.eth.getTransaction(tx['transactionHash'], (error, txResult) => {
+    await web3.eth.getTransaction(tx['transactionHash'], async (error, txResult) => {
       let result = decoder.decodeData(txResult.input)
       let price = result['inputs'][1][4].toString(10)
       let tokenContract = "0x" + result['inputs'][0][4]
@@ -44,7 +61,7 @@ async function getEvents(fromBlock, toBlock) {
         data[tokenContract] = [[tx['blockNumber'], price]]
       }
       if (count >= txns.length) {
-        afterData(data)
+        await afterData(data)
       }
       count++
 
@@ -52,24 +69,28 @@ async function getEvents(fromBlock, toBlock) {
   }
 }
 
-function afterData(data) {
+async function afterData(data) {
   // console.log(data)
   for (let contractAddr in data) {
     for (let sale of data[contractAddr]) {
       let blockNum = sale[0]
       let salePrice = sale[1]
       let final = [contractAddr, blockNum, salePrice]
-      writeToDB(final)
+      await writeToDB(final)
     }
   }
+  knownBlockRange[1] + CHUNK_SIZE
+  totalBlocksParsed += CHUNK_SIZE
+  console.log("Parsed " + totalBlocksParsed + " blocks so far")
+  ON_START()
 }
 
-function writeToDB(data) {
-  // console.log(data)
-  db.serialize(() => {
-    db.each(`INSERT INTO sales(contract, blockNum, price) values ("${data[0]}", ${data[1]}, ${parseFloat(data[2])})`)
+async function writeToDB(data) {
+  db.run("INSERT INTO sales(contract, blockNum, price) values (?, ?, ?)", [data[0], data[1], parseFloat(data[2])], (err) => {
+    if (err) {
+      console.log(err)
+    }
   })
-  // console.log("wrote data to db")
 }
 
 function getOsABI() {
