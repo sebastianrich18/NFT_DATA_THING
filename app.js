@@ -49,16 +49,17 @@ async function getEvents(fromBlock, toBlock) {
   for (tx of txns) {
     await web3.eth.getTransaction(tx['transactionHash'], async (error, txResult) => {
       let result = decoder.decodeData(txResult.input)
+      let txHash = tx['transactionHash']
       let price = result['inputs'][1][4].toString(10)
       let tokenContract = "0x" + result['inputs'][0][4]
       price = web3.utils.fromWei(price)
 
       if (data[tokenContract] != undefined) {
         // console.log("pushing")
-        data[tokenContract].push([tx['blockNumber'], price])
+        data[tokenContract].push([tx['blockNumber'], price, txHash])
       } else {
         // console.log("adding")
-        data[tokenContract] = [[tx['blockNumber'], price]]
+        data[tokenContract] = [[tx['blockNumber'], price, txHash]]
       }
       if (count >= txns.length) {
         await afterData(data)
@@ -73,20 +74,22 @@ async function afterData(data) {
   // console.log(data)
   for (let contractAddr in data) {
     for (let sale of data[contractAddr]) {
+      // console.log(sale)
       let blockNum = sale[0]
       let salePrice = sale[1]
-      let final = [contractAddr, blockNum, salePrice]
+      let final = [contractAddr, blockNum, salePrice, sale[2]]
       await writeToDB(final)
     }
   }
   knownBlockRange[1] + CHUNK_SIZE
   totalBlocksParsed += CHUNK_SIZE
   console.log("Parsed " + totalBlocksParsed + " blocks so far")
+  updateStats(data)
   ON_START()
 }
 
 async function writeToDB(data) {
-  db.run("INSERT INTO sales(contract, blockNum, price) values (?, ?, ?)", [data[0], data[1], parseFloat(data[2])], (err) => {
+  db.run("INSERT INTO sales(contract, blockNum, price, tx) values (?, ?, ?, ?)", [data[0], data[1], parseFloat(data[2]), data[3]], (err) => {
     if (err) {
       console.log(err)
     }
