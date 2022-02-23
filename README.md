@@ -1,7 +1,7 @@
 # NFT VOLUME ANALYSIS
 >Get sale data for every NFT on Opensea
 
-#USEAGE
+# USEAGE
 * clone the repo: `git clone https://github.com/sebastianrich18/NFT_DATA_THING`
 * cd into repo `cd NFT_DATA_THING`
 * To start collecting data run `node app.js`
